@@ -9,6 +9,8 @@ const SECONDS_PER_SOL:u64 = 86_400;
 
 #[program]
 pub mod stake_contract {
+    use anchor_lang::{accounts::signer, solana_program::example_mocks::solana_sdk::clock};
+
     use super::*;
 
     pub fn create_pda_account(ctx:Context<CreatPdaAccount>)->Result<()>{
@@ -53,6 +55,36 @@ pub mod stake_contract {
     }
 
     pub  fn unstake(ctx:Context<Unstake> , amount:u64) -> Result<()>{
+        require!(amount > 0 , StakeError::InvalidAmount);
+
+        let pda_account = &mut ctx.accounts.pda_account;
+        let clock = Clock::get()?;
+
+        update_points(pda_account, clock.unix_timestamp)?;
+
+        //transfer sol from pda back to user 
+        let seed = &[
+            b"client1",
+            ctx.accounts.signer.key.as_ref(),
+            &[pda_account.bump],
+        ];
+        let signer = &[&seed[..]];
+
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from :pda_account.to_account_info(),
+                to:ctx.accounts.signer.to_account_info(),
+            },
+            signer
+        );
+
+        system_program::transfer(cpi_context, amount)?;
+
+        //update stacked amount
+        pda_account.staked_amount = pda_account.staked_amount.checked_sub(amount).ok_or(StakeError::Underflow)?; 
+
+        msg!("Unstaked {} lamports , Remaining stakeed {} , Total points {} " , amount , pda_account.staked_amount , pda_account.total_points / 1_000_000);
         Ok(())
     }
 
@@ -178,4 +210,6 @@ pub enum StakeError {
     Overflow,
     #[msg("Invalid Timestamp")]
     InvalidTimestamp,
+    #[msg("Arithematic ondeflow")]
+    Underflow,
 }
