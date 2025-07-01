@@ -1,215 +1,275 @@
 use anchor_lang::prelude::*;
-use anchor_lang::system_program;
+use anchor_lang::system_program::{self, Transfer};
+use anchor_lang::solana_program::system_instruction;
+use anchor_lang::solana_program::program::invoke_signed;
 
 declare_id!("GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ");
 
-const POINTS_PER_SOL_PER_DAY :u64 = 1_000_000;
-const LAMPORTS_PER_SOL :u64 = 1_000_000_000;
-const SECONDS_PER_SOL:u64 = 86_400;
+const POINTS_PER_SOL_PER_DAY: u64 = 1_000_000;
+const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
+const SECONDS_PER_DAY: u64 = 86_400; // Fixed: was SECONDS_PER_SOL
 
 #[program]
 pub mod stake_contract {
-    use anchor_lang::{accounts::signer, solana_program::example_mocks::solana_sdk::clock};
-
     use super::*;
 
-    pub fn create_pda_account(ctx:Context<CreatPdaAccount>)->Result<()>{
-        let pda_account = &mut ctx.accounts.pda_account;
+    pub fn create_pda_account(ctx: Context<CreatePdaAccount>) -> Result<()> {
+        let stake_data = &mut ctx.accounts.stake_data;
         let clock = Clock::get()?;
 
-        pda_account.owner = ctx.accounts.payer.key();
-        pda_account.staked_amount = 0;
-        pda_account.total_points =0;
-        pda_account.last_update_time = clock.unix_timestamp;
-        pda_account.bump = ctx.bumps.pda_account;
+        stake_data.owner = ctx.accounts.payer.key();
+        stake_data.staked_amount = 0;
+        stake_data.total_points = 0;
+        stake_data.last_update_time = clock.unix_timestamp;
+        stake_data.bump = ctx.bumps.stake_data; // Fixed: should be stake_data bump
 
-        msg!("PDA account created succesfully");
+        msg!("PDA + Vault created");
         Ok(())
     }
 
-    pub fn stake(ctx:Context<Stake> , amount:u64) ->Result<()>{
-        require!(amount > 0 , StakeError::InvalidAmount);
+    pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
+        require!(amount > 0, StakeError::InvalidAmount);
 
-        let pda_account = &mut ctx.accounts.pda_account;
+        let stake_data = &mut ctx.accounts.stake_data;
         let clock = Clock::get()?;
+        update_points(stake_data, clock.unix_timestamp)?;
 
-        // upadate point before changing staked amount 
-        update_points(pda_account, clock.unix_timestamp)?;
-
-        // transfer sol from user to pda 
-        let cpi_context = CpiContext::new(
+        // Transfer SOL from user → vault PDA
+        let cpi_ctx = CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
-             system_program::Transfer {
-                from:ctx.accounts.signer.to_account_info(),
-                to: pda_account.to_account_info(),
-             },
-        );
-        system_program::transfer(cpi_context, amount)?;
-
-        // update staked amount 
-        pda_account.staked_amount = pda_account.staked_amount.checked_add(amount).ok_or(StakeError::Overflow)?;
-
-        msg!("staked {} lamports. Total staked: {} , Total point: {}" , amount , pda_account.staked_amount , pda_account.total_points / POINTS_PER_SOL_PER_DAY );
-
-        Ok(())
-    }
-
-    pub  fn unstake(ctx:Context<Unstake> , amount:u64) -> Result<()>{
-        require!(amount > 0 , StakeError::InvalidAmount);
-
-        let pda_account = &mut ctx.accounts.pda_account;
-        let clock = Clock::get()?;
-
-        update_points(pda_account, clock.unix_timestamp)?;
-
-        //transfer sol from pda back to user 
-        let seed = &[
-            b"client1",
-            ctx.accounts.signer.key.as_ref(),
-            &[pda_account.bump],
-        ];
-        let signer = &[&seed[..]];
-
-        let cpi_context = CpiContext::new_with_signer(
-            ctx.accounts.system_program.to_account_info(),
-            system_program::Transfer {
-                from :pda_account.to_account_info(),
-                to:ctx.accounts.signer.to_account_info(),
+            Transfer {
+                from: ctx.accounts.signer.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
             },
-            signer
+        );
+        system_program::transfer(cpi_ctx, amount)?;
+
+        stake_data.staked_amount = stake_data
+            .staked_amount
+            .checked_add(amount)
+            .ok_or(StakeError::Overflow)?;
+
+        msg!("Staked {} lamports", amount);
+        Ok(())
+    }
+
+    pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
+        require!(amount > 0, StakeError::InvalidAmount);
+
+        let stake_data = &mut ctx.accounts.stake_data;
+        let clock = Clock::get()?;
+        update_points(stake_data, clock.unix_timestamp)?;
+
+        require!(
+            stake_data.staked_amount >= amount,
+            StakeError::InsufficientStake
         );
 
-        system_program::transfer(cpi_context, amount)?;
+        // Check vault has enough balance
+        require!(
+            ctx.accounts.vault.lamports() >= amount,
+            StakeError::InsufficientVaultBalance
+        );
 
-        //update stacked amount
-        pda_account.staked_amount = pda_account.staked_amount.checked_sub(amount).ok_or(StakeError::Underflow)?; 
+        // Transfer SOL from vault PDA to user
+        **ctx.accounts.vault.try_borrow_mut_lamports()? -= amount;
+        **ctx.accounts.signer.try_borrow_mut_lamports()? += amount;
 
-        msg!("Unstaked {} lamports , Remaining stakeed {} , Total points {} " , amount , pda_account.staked_amount , pda_account.total_points / 1_000_000);
+        stake_data.staked_amount = stake_data
+            .staked_amount
+            .checked_sub(amount)
+            .ok_or(StakeError::Underflow)?;
+
+        msg!("Unstaked {} lamports", amount);
         Ok(())
     }
 
-    pub fn claim_points(ctx:Context<ClaimPints>) -> Result<()>{
+    pub fn claim_points(ctx: Context<ClaimPoints>) -> Result<()> {
+        let stake_data = &mut ctx.accounts.stake_data;
+        let clock = Clock::get()?;
+
+        update_points(stake_data, clock.unix_timestamp)?;
+
+        let claimed = stake_data.total_points / 1_000_000;
+        msg!("Claimed points: {}", claimed);
+        stake_data.total_points = 0;
+
         Ok(())
     }
 
-    pub fn get_points(ctx:Context<GetPoints>)->Result<()>{
+    pub fn get_points(ctx: Context<GetPoints>) -> Result<()> {
+        let stake_data = &ctx.accounts.stake_data;
+        let clock = Clock::get()?;
+
+        let time_elapsed = clock
+            .unix_timestamp
+            .checked_sub(stake_data.last_update_time)
+            .ok_or(StakeError::InvalidTimestamp)? as u64;
+
+        let new_points = calculate_points_earned(stake_data.staked_amount, time_elapsed)?;
+        let total = stake_data
+            .total_points
+            .checked_add(new_points)
+            .ok_or(StakeError::Overflow)?;
+
+        msg!("Total points: {}", total / 1_000_000);
         Ok(())
     }
 }
 
-fn update_points(pda_account : &mut StakeAccount  , current_time:i64) -> Result<()>{
-    let time_elapsed = current_time.checked_sub(pda_account.last_update_time).ok_or(StakeError::InvalidTimestamp)? as u64;
+// ========== Helper Functions ==========
 
-    if time_elapsed > 0 && pda_account.staked_amount > 0 {
-        let new_points = calculate_points_earned(pda_account.staked_amount  , time_elapsed)?;
-        pda_account.total_points = pda_account.total_points.checked_add(new_points).ok_or(StakeError::Overflow)?;
+fn update_points(stake_data: &mut StakeAccount, current_time: i64) -> Result<()> {
+    let elapsed = current_time
+        .checked_sub(stake_data.last_update_time)
+        .ok_or(StakeError::InvalidTimestamp)? as u64;
+
+    if elapsed > 0 && stake_data.staked_amount > 0 {
+        let new_points = calculate_points_earned(stake_data.staked_amount, elapsed)?;
+        stake_data.total_points = stake_data
+            .total_points
+            .checked_add(new_points)
+            .ok_or(StakeError::Overflow)?;
     }
 
-    pda_account.last_update_time = current_time;
+    stake_data.last_update_time = current_time;
     Ok(())
 }
 
-fn calculate_points_earned(staked_amount:u64  , time_elapsed_second:u64) -> Result<(u64)>{
-
-    let points = (staked_amount as u128)
-        .checked_mul(time_elapsed_second as u128)
+fn calculate_points_earned(staked: u64, elapsed: u64) -> Result<u64> {
+    let points = (staked as u128)
+        .checked_mul(elapsed as u128)
         .ok_or(StakeError::Overflow)?
         .checked_mul(POINTS_PER_SOL_PER_DAY as u128)
         .ok_or(StakeError::Overflow)?
         .checked_div(LAMPORTS_PER_SOL as u128)
         .ok_or(StakeError::Overflow)?
-        .checked_div(SECONDS_PER_SOL as u128)
+        .checked_div(SECONDS_PER_DAY as u128) // Fixed: use SECONDS_PER_DAY
         .ok_or(StakeError::Overflow)?;
 
-
-    Ok((points as u64))
+    Ok(points as u64)
 }
 
 #[derive(Accounts)]
-pub struct CreatPdaAccount<'info> {
+pub struct CreatePdaAccount<'info> {
     #[account(mut)]
-    pub payer :Signer<'info>,
-    #[account(
-    init,
-    seeds=[b"client1",payer.key().as_ref()],
-    bump,
-    payer=payer,
-    space=8+ 32 + 8+8+8+1 
-    )]
+    pub payer: Signer<'info>,
 
-    pub pda_account:Account<'info, StakeAccount>,
-    pub system_program:Program<'info, System>,
+    #[account(
+        init,
+        seeds = [b"stake_data", payer.key().as_ref()],
+        bump,
+        payer = payer,
+        space = 8 + 32 + 8 + 8 + 8 + 1
+    )]
+    pub stake_data: Account<'info, StakeAccount>,
+
+    #[account(
+        seeds = [b"vault", payer.key().as_ref()],
+        bump,
+    )]
+    /// CHECK: Safe. PDA vault will receive SOL, no data
+    pub vault: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct Stake<'info> {
-   #[account(mut)]
-   pub signer :Signer<'info>,
-   #[account(mut,
-    seeds = [b"client1" , signer.key().as_ref()],
-    bump=pda_account.bump,
-    constraint= pda_account.owner == signer.key() @ StakeError::Unauthorized,
-  )]
-   pub pda_account:Account<'info, StakeAccount>,
-   pub system_program:Program<'info, System>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stake_data", signer.key().as_ref()],
+        bump = stake_data.bump,
+        constraint = stake_data.owner == signer.key() @ StakeError::Unauthorized,
+    )]
+    pub stake_data: Account<'info, StakeAccount>,
+
+    #[account(
+        mut,
+        seeds = [b"vault", signer.key().as_ref()],
+        bump,
+    )]
+    /// CHECK: PDA Vault receiving SOL
+    pub vault: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct Unstake<'info> {
     #[account(mut)]
-    pub signer :Signer<'info>,
-    #[account(mut,
-    seeds = [b"client1" , signer.key().as_ref()],
-    bump=pda_account.bump,
-    constraint= pda_account.owner == signer.key() @ StakeError::Unauthorized,
-  )]
-    pub pda_account:Account<'info, StakeAccount>,
-    pub system_program:Program<'info, System>,
+    pub signer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stake_data", signer.key().as_ref()],
+        bump = stake_data.bump,
+        constraint = stake_data.owner == signer.key() @ StakeError::Unauthorized,
+    )]
+    pub stake_data: Account<'info, StakeAccount>,
+
+    #[account(
+        mut,
+        seeds = [b"vault", signer.key().as_ref()],
+        bump,
+    )]
+    /// CHECK: PDA Vault sending SOL
+    pub vault: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimPoints<'info> {
+    pub signer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"stake_data", signer.key().as_ref()],
+        bump = stake_data.bump,
+        constraint = stake_data.owner == signer.key() @ StakeError::Unauthorized,
+    )]
+    pub stake_data: Account<'info, StakeAccount>,
 }
 
 #[derive(Accounts)]
 pub struct GetPoints<'info> {
-    #[account(mut)]
-    pub signer :Signer<'info>,
-    #[account(
-    seeds = [b"client1" , signer.key().as_ref()],
-    bump=pda_account.bump,
-    constraint= pda_account.owner == signer.key() @ StakeError::Unauthorized,
-  )]
-    pub pda_account:Account<'info, StakeAccount>,
-}
+    pub signer: Signer<'info>,
 
-#[derive(Accounts)]
-pub struct ClaimPints<'info> {
-    #[account(mut)]
-    pub signer :Signer<'info>,
     #[account(
-    seeds = [b"client1" , signer.key().as_ref()],
-    bump=pda_account.bump,
-    constraint= pda_account.owner == signer.key() @ StakeError::Unauthorized,
-  )]
-    pub pda_account:Account<'info, StakeAccount>,
+        seeds = [b"stake_data", signer.key().as_ref()],
+        bump = stake_data.bump,
+        constraint = stake_data.owner == signer.key() @ StakeError::Unauthorized,
+    )]
+    pub stake_data: Account<'info, StakeAccount>,
 }
 
 #[account]
 pub struct StakeAccount {
-    pub owner:Pubkey,
-    pub staked_amount:u64,
-    pub total_points:u64,
-    pub last_update_time:i64,
-    pub bump:u8
+    pub owner: Pubkey,
+    pub staked_amount: u64,
+    pub total_points: u64,
+    pub last_update_time: i64,
+    pub bump: u8,
 }
 
 #[error_code]
 pub enum StakeError {
-    #[msg("Amount must br greater than 0")]
+    #[msg("Amount must be greater than 0")]
     InvalidAmount,
     #[msg("Unauthorized access")]
     Unauthorized,
-    #[msg("Arithematic overflow")]
+    #[msg("Arithmetic overflow")]
     Overflow,
-    #[msg("Invalid Timestamp")]
+    #[msg("Invalid timestamp")]
     InvalidTimestamp,
-    #[msg("Arithematic ondeflow")]
+    #[msg("Arithmetic underflow")]
     Underflow,
+    #[msg("Insufficient staked amount")]
+    InsufficientStake,
+    #[msg("Insufficient vault balance")]
+    InsufficientVaultBalance,
 }

@@ -12,7 +12,7 @@ stake_contract = "GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
+cluster = "http://127.0.0.1:8899"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
