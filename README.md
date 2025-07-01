@@ -82,7 +82,41 @@ anchor test
 - PDA accounts are properly derived and validated
 - Amount checks prevent overflow/underflow
 - Owner verification on all sensitive operations
+- 
 
+| **Direct Lamports**   | ```rust
+**vault.try_borrow_mut_lamports()? -= amount;
+**signer.try_borrow_mut_lamports()? += amount;
+``` | Simpler but riskier |
+
+---
+
+### 4. **When to Use Each**
+| Use Case                           | Preferred Method        | Reason                                                                 |
+|------------------------------------|-------------------------|-----------------------------------------------------------------------|
+| Transferring from **PDA**          | `invoke_signed`         | Built-in signature validation                                         |
+| Micro-optimizing for gas           | Direct Lamports         | Lower CU cost (e.g., in high-frequency trades)                        |
+| Transferring from non-PDA accounts | Direct Lamports         | No signing needed (just ensure `mut` and proper authority)            |
+
+---
+
+### Key Takeaways:
+1. **`invoke_signed` is safer for PDAs**  
+   - The runtime enforces that only the correct PDA seeds can spend funds.
+   - Use this unless you have a specific reason to optimize gas.
+
+2. **Direct lamports are faster/cheaper**  
+   - Useful for internal bookkeeping (e.g., redistributing SOL between program-controlled accounts).
+   - Requires careful manual checks to avoid exploits.
+
+3. **Never skip validation**  
+   Even with direct lamports, you **must**:
+   ```rust
+   // Check the PDA matches expected seeds
+   require!(vault_is_valid, Error::Unauthorized);
+
+   // Check for underflow/overflow
+   require!(vault_balance >= amount, Error::InsufficientFunds);
 ## Development 👨‍💻
 
 ```bash
