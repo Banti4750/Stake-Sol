@@ -82,6 +82,27 @@ describe("stake_contract (dual PDA)", () => {
     );
   });
 
+  it("Stakes 0.5 SOL" , async () => {
+    const [stakeDataPda] = getStakeDataPda();
+    const [vaultPda] = getVaultPda();
+    const stakeAmount = new anchor.BN(0.5 * LAMPORTS_PER_SOL);
+    const before = await getStakeData(stakeDataPda);
+    const tx = await program.methods
+     .stake(stakeAmount)
+     .accounts({
+        signer: payer.publicKey,
+        stakeData: stakeDataPda,
+        vault: vaultPda,
+        systemProgram: SystemProgram.programId,
+      })
+     .rpc();
+    console.log("✅ Stake tx:", tx);
+    const after = await getStakeData(stakeDataPda);
+    expect(after.stakedAmount.toNumber()).to.equal(
+      before.stakedAmount.toNumber() + stakeAmount.toNumber()
+    );
+  });
+
   it("Fails to stake 0 SOL", async () => {
     const [stakeDataPda] = getStakeDataPda();
     const [vaultPda] = getVaultPda();
@@ -120,6 +141,27 @@ describe("stake_contract (dual PDA)", () => {
       })
       .rpc();
 
+    console.log("✅ Unstake tx:", tx);
+    const after = await getStakeData(stakeDataPda);
+    expect(after.stakedAmount.toNumber()).to.equal(
+      before.stakedAmount.toNumber() - unstakeAmount.toNumber()
+    );
+  });
+
+  it("Unstakes 0.5 SOL", async () => {
+    const [stakeDataPda] = getStakeDataPda();
+    const [vaultPda] = getVaultPda();
+    const unstakeAmount = new anchor.BN(0.05 * LAMPORTS_PER_SOL);
+    const before = await getStakeData(stakeDataPda);
+    const tx = await program.methods
+     .unstake(unstakeAmount)
+     .accounts({
+        signer: payer.publicKey,
+        stakeData: stakeDataPda,
+        vault: vaultPda,
+        systemProgram: SystemProgram.programId,
+      })
+     .rpc();
     console.log("✅ Unstake tx:", tx);
     const after = await getStakeData(stakeDataPda);
     expect(after.stakedAmount.toNumber()).to.equal(
@@ -195,3 +237,4 @@ describe("stake_contract (dual PDA)", () => {
     console.log("🏦 Vault Balance:", vaultBalance / LAMPORTS_PER_SOL, "SOL");
   });
 });
+
