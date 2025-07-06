@@ -6,8 +6,8 @@ import { Program,  AnchorProvider, setProvider } from "@coral-xyz/anchor";
 // import type { StakeContract } from "../../target/types/stake_contract";
 // import  StakeContractIdl  from '../../target/idl/stake_contract.json';
 
-import type { StakeContract } from "./target/stake_contract.js";
-import idl from "./target/stake_contract.json";
+import type { StakeContract } from "./target_not/stake_contract.js";
+import idl from "./target_not/stake_contract.json";
 
 
 const programId = new PublicKey("GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ");
