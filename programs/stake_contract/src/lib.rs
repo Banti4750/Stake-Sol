@@ -53,36 +53,47 @@ pub mod stake_contract {
         Ok(())
     }
 
-    pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
-        require!(amount > 0, StakeError::InvalidAmount);
+   pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
+    require!(amount > 0, StakeError::InvalidAmount);
 
-        let stake_data = &mut ctx.accounts.stake_data;
-        let clock = Clock::get()?;
-        update_points(stake_data, clock.unix_timestamp)?;
+    let stake_data = &mut ctx.accounts.stake_data;
+    let clock = Clock::get()?;
+    update_points(stake_data, clock.unix_timestamp)?;
 
-        require!(
-            stake_data.staked_amount >= amount,
-            StakeError::InsufficientStake
-        );
+    require!(
+        stake_data.staked_amount >= amount,
+        StakeError::InsufficientStake
+    );
 
-        // Check vault has enough balance
-        require!(
-            ctx.accounts.vault.lamports() >= amount,
-            StakeError::InsufficientVaultBalance
-        );
+    // Create PDA signer seeds
+    let signer_key = ctx.accounts.signer.key(); // ✅ Now lives long enough
+    let seeds = &[
+        b"vault",
+        signer_key.as_ref(), // ✅ Uses the long-lived reference
+        &[ctx.bumps.vault],
+    ];
+    // Transfer SOL from vault to user (requires PDA signature)
+    anchor_lang::solana_program::program::invoke_signed(
+        &system_instruction::transfer(
+            &ctx.accounts.vault.key(),
+            &ctx.accounts.signer.key(),
+            amount,
+        ),
+        &[
+            ctx.accounts.vault.to_account_info(),
+            ctx.accounts.signer.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+         &[seeds],  // Provides the PDA's "signature"
+    )?;
 
-        // Transfer SOL from vault PDA to user
-        **ctx.accounts.vault.try_borrow_mut_lamports()? -= amount;
-        **ctx.accounts.signer.try_borrow_mut_lamports()? += amount;
+    stake_data.staked_amount = stake_data
+        .staked_amount
+        .checked_sub(amount)
+        .ok_or(StakeError::Underflow)?;
 
-        stake_data.staked_amount = stake_data
-            .staked_amount
-            .checked_sub(amount)
-            .ok_or(StakeError::Underflow)?;
-
-        msg!("Unstaked {} lamports", amount);
-        Ok(())
-    }
+    Ok(())
+}
 
     pub fn claim_points(ctx: Context<ClaimPoints>) -> Result<()> {
         let stake_data = &mut ctx.accounts.stake_data;
@@ -198,6 +209,7 @@ pub struct Stake<'info> {
     pub system_program: Program<'info, System>,
 }
 
+
 #[derive(Accounts)]
 pub struct Unstake<'info> {
     #[account(mut)]
@@ -207,17 +219,15 @@ pub struct Unstake<'info> {
         mut,
         seeds = [b"stake_data", signer.key().as_ref()],
         bump = stake_data.bump,
-        constraint = stake_data.owner == signer.key() @ StakeError::Unauthorized,
     )]
     pub stake_data: Account<'info, StakeAccount>,
 
     #[account(
         mut,
         seeds = [b"vault", signer.key().as_ref()],
-        bump,
+        bump,  // Anchor automatically finds and passes this
     )]
-    /// CHECK: PDA Vault sending SOL
-    pub vault: UncheckedAccount<'info>,
+    pub vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }

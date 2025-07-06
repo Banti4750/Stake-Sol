@@ -13,6 +13,7 @@ import "./App.css";
 
 // Default styles that can be overridden by your app
 import "@solana/wallet-adapter-react-ui/styles.css";
+import { StakeInterface } from './StakeInterface';
 
 function App() {
   // The network can be set to 'devnet', 'testnet', or 'mainnet-beta'.
@@ -34,15 +35,11 @@ function App() {
         <WalletModalProvider>
           <div className="app-container">
             <header className="app-header">
+              <h1 className="text-2xl ">Solana Staking</h1>
               <WalletMultiButton className="wallet-button" />
             </header>
             <main className="main-content">
-              <h1 className="title">Welcome to Solana Staking</h1>
-              <p className="subtitle">Connect your wallet to get started</p>
-              <div className="card">
-                <h2>Stake your SOL</h2>
-                <p>Earn rewards by staking your SOL tokens</p>
-              </div>
+              <StakeInterface/>
             </main>
           </div>
         </WalletModalProvider>
@@ -52,3 +49,4 @@ function App() {
 }
 
 export default App;
+

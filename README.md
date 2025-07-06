@@ -2,6 +2,7 @@
 
 A modern Solana staking contract built with Anchor framework that allows users to stake SOL and earn points based on the staking duration.
 
+Program Id: GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ
 ## Features ✨
 
 - **Stake SOL**: Lock your SOL tokens to earn staking points
