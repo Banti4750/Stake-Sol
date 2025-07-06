@@ -4,7 +4,7 @@ A modern Solana staking contract built with Anchor framework that allows users t
 
 ## Live Demo 🚀
 
-Check out the live demo here: <mcurl name="Live Demo" url="https://stake-sol-git-main-banti-kumars-projects.vercel.app/"></mcurl>
+Check out the live demo here: [Live Demo](https://stake-sol-git-main-banti-kumars-projects.vercel.app/)
 
 ## Program Id  🚀
 Program Id: GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ
