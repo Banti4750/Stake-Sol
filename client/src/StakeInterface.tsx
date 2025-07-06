@@ -3,8 +3,11 @@ import {  useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from '@solana/web3.js';
 import * as anchor from '@coral-xyz/anchor';
 import { Program,  AnchorProvider, setProvider } from "@coral-xyz/anchor";
-import type { StakeContract } from "../../target/types/stake_contract";
-import  StakeContractIdl  from '../../target/idl/stake_contract.json';
+// import type { StakeContract } from "../../target/types/stake_contract";
+// import  StakeContractIdl  from '../../target/idl/stake_contract.json';
+
+import type { StakeContract } from "./target/stake_contract";
+import  StakeContractIdl  from './target/stake_contract.json';
 
 
 const programId = new PublicKey("GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ");
