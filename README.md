@@ -2,7 +2,13 @@
 
 A modern Solana staking contract built with Anchor framework that allows users to stake SOL and earn points based on the staking duration.
 
+## Live Demo 🚀
+
+Check out the live demo here: <mcurl name="Live Demo" url="https://stake-sol-git-main-banti-kumars-projects.vercel.app/"></mcurl>
+
+## Program Id  🚀
 Program Id: GiSpyqsUFLfHZ3Vshoshg21AmuFzm814xQ2vFuF7GDuJ
+
 ## Features ✨
 
 - **Stake SOL**: Lock your SOL tokens to earn staking points
@@ -134,6 +140,7 @@ anchor test
 ## Contributing 🤝
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
 
 ## License 📄
 
