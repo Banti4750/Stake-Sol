@@ -89,7 +89,7 @@ body::after {
   font-size: 2.5rem;
   font-weight: bold;
   background: linear-gradient(120deg, #ffffff 0%, #a0a0a0 100%);
-  -webkit-background-clip: text;
+  
   -webkit-text-fill-color: transparent;
   animation: titleGlow 8s ease-in-out infinite;
 }
@@ -195,7 +195,7 @@ body::after {
   font-size: 1.5rem;
   margin-bottom: 1rem;
   background: linear-gradient(120deg, #ffffff 0%, #a0a0a0 100%);
-  -webkit-background-clip: text;
+ 
   -webkit-text-fill-color: transparent;
 }
 

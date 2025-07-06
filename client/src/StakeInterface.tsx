@@ -223,7 +223,7 @@ const wallet = useWallet();
       }
 
         // ✅ Get the vault PDA AND its bump seed
-    const [vaultPda, vaultBump] = await anchor.web3.PublicKey.findProgramAddress(
+    const [vaultPda] = await anchor.web3.PublicKey.findProgramAddress(
       [Buffer.from("vault"), publicKey.toBuffer()],
       program.programId
     );
